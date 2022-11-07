@@ -379,7 +379,7 @@ def group_confusion(confusions:torch.Tensor, cems_code:np.ndarray,fun:Callable,
 
 def compute_metrics_v2(dataloader:torch.utils.data.dataloader.DataLoader,
                        pred_fun: Callable, thresholds_water:Optional[np.array]=None,
-                       threshold_water:float=.5, threshold_clouds=.5,
+                       threshold_water:float=.5, threshold_clouds=.5, distinguish_flood_traces = False,
                        plot=False, mask_clouds:bool=True) -> Dict:
     """
     Run inference on a dataloader and compute metrics for that data
@@ -418,15 +418,19 @@ def compute_metrics_v2(dataloader:torch.utils.data.dataloader.DataLoader,
 
     for i, batch in tqdm(enumerate(dataloader), total=int(len(dataloader.dataset)/dataloader.batch_size)):
         test_inputs, ground_truth = batch["image"], batch["mask"]
-
-        test_outputs = pred_fun(test_inputs)
-      
-        test_outputs_categorical = test_outputs[:,1] > threshold_water
+        
+        if distinguish_flood_traces:
+            test_outputs, mndwi = pred_fun(test_inputs)
+            test_outputs_categorical = (test_outputs[:,1] > threshold_water) & (mndwi > 0)
+        else:
+            test_outputs = pred_fun(test_inputs)
+            test_outputs_categorical = (test_outputs[:,1] > threshold_water)
+            
         probs_water_pr_curve = test_outputs[:, 1]
         water_ground_truth = ground_truth[:, 1] # (batch_size, H, W)
         invalids = (water_ground_truth == 0).to(test_outputs_categorical.device) # (batch_size, H, W)
         ground_truth_outputs = torch.clone(water_ground_truth).to(test_outputs_categorical.device)
-        
+    
         if not mask_clouds:
             assert test_outputs.shape[1] == 2, f"Mode mask clouds expects 2 channel output image found {test_outputs.shape}"
             test_outputs_categorical[test_outputs[:, 0] > threshold_clouds] = 2
