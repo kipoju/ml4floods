@@ -834,3 +834,124 @@ def wait_tasks(tasks:List[ee.batch.Task]) -> None:
         time.sleep(60)
 
     print("Tasks failed: %d" % task_error)
+
+
+
+def get_s1_collection(date_start:datetime, date_end:datetime,
+                      bounds:ee.Geometry,
+                      collection_name:str='COPERNICUS/S1_GRD', 
+                      verbose:int=1) -> Optional[ee.ImageCollection]:
+    
+    # GEE doesnt like time zones
+    date_start = date_start.replace(tzinfo=None)
+    date_end = date_end.replace(tzinfo=None)
+    img_col_all, n_images_col = _get_collection(collection_name, date_start, date_end, bounds)
+    if n_images_col <= 0:
+        if verbose > 1:
+            print(f"Not images found for collection {collection_name} date start: {date_start} date end: {date_end}")
+        return
+    
+    daily_mosaic =  collection_mosaic_day(img_col_all, bounds)
+
+    return daily_mosaic
+
+def download_s1(area_of_interest: Polygon, date_start_search: datetime, date_end_search: datetime,
+                   path_bucket: str,
+                   collection_name='S1_GRD', crs:str='EPSG:4326',
+                   filter_fun:Callable[[pd.DataFrame], pd.Series]=None,
+                   name_task:Optional[str]=None,
+                   resolution_meters:float=10) -> List[ee.batch.Task]:
+    assert path_bucket.startswith("gs://"), f"Path bucket: {path_bucket} must start with gs://"
+
+    path_bucket_no_gs = path_bucket.replace("gs://", "")
+    bucket_name = path_bucket_no_gs.split("/")[0]
+    path_no_bucket_name = "/".join(path_bucket_no_gs.split("/")[1:])
+
+    fs = fsspec.filesystem("gs", requester_pays = True)
+
+    path_csv = os.path.join(path_bucket, "s1info.csv")
+
+    if fs.exists(path_csv):
+        data = process_metadata(path_csv, fs=fs)
+        if _check_all_downloaded(data, date_start_search=date_start_search,
+                                 date_end_search=date_end_search,
+                                 filter_s2_fun=filter_fun,
+                                 collection_name=collection_name):
+            return []
+        else:
+            min_date = min(data["datetime"])
+            max_date = max(data["datetime"])
+            date_start_search = min(min_date, date_start_search)
+            date_end_search = max(max_date, date_end_search)
+        
+    # ee.Authenticate()  
+    ee.Initialize()
+    area_of_interest_geojson = mapping(area_of_interest)
+    bounding_box_aoi = area_of_interest.bounds
+    bounding_box_pol = ee.Geometry.Polygon(generate_polygon(bounding_box_aoi))
+
+    pol = ee.Geometry(area_of_interest_geojson)
+
+    img_col = get_s1_collection(date_start_search, date_end_search, pol, verbose=2)
+
+    if img_col is None:
+        return []
+
+    # Get info of the S2 images (convert to table)
+    img_col_info_local = image_collection_fetch_metadata(img_col)
+
+    n_images_col = img_col_info_local.shape[0]
+    
+    # Save S2 images as csv
+    with fs.open(path_csv, "wb") as fh:
+        img_col_info_local.to_csv(fh, index=False, mode="wb")
+
+    print(f"Found {n_images_col} {collection_name} images between {date_start_search.isoformat()} and {date_end_search.isoformat()}")
+
+    imgs_list = img_col.toList(n_images_col, 0)
+
+    export_task_fun_img = export_task_image(
+        bucket=bucket_name,
+        crs=crs,
+        scale=resolution_meters,
+    )
+    if filter_fun is not None:
+        filter_good = filter_fun(img_col_info_local)
+
+        if np.sum(filter_good) == 0:
+            print("All images are bad")
+            return []
+
+        img_col_info_local_good = img_col_info_local[filter_good]
+    else:
+        img_col_info_local_good = img_col_info_local
+
+    tasks = []
+    for good_images in img_col_info_local_good.itertuples():
+        img_export = ee.Image(imgs_list.get(good_images.index_image_collection))
+        img_export = img_export.clip(bounding_box_pol)
+
+        date = good_images.datetime.strftime('%Y-%m-%d')
+
+        if name_task is None:
+            name_for_desc = os.path.basename(path_no_bucket_name)
+        else:
+            name_for_desc = name_task
+        
+        filename = os.path.join(path_no_bucket_name, date)
+        desc = f"{name_for_desc}_{date}"
+        task = mayberun(
+            filename,
+            desc,
+            lambda: img_export,
+            export_task_fun_img,
+            overwrite=False,
+            dry_run=False,
+            bucket_name=bucket_name,
+            verbose=2,
+        )
+        if task is not None:
+            tasks.append(task)
+
+    return tasks
+
