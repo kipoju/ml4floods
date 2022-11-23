@@ -799,7 +799,7 @@ def image_collection_fetch_metadata(img_col:ee.ImageCollection) -> pd.DataFrame:
     img_col_info_local["datetime"] = img_col_info_local["system:time_start"].apply(
         lambda x: datetime.utcfromtimestamp(x / 1000).replace(tzinfo=timezone.utc))
     img_col_info_local["cloud_probability"] /= 100
-    img_col_info_local = img_col_info_local[["system:time_start", "valids", "cloud_probability", "datetime"]]
+    img_col_info_local = img_col_info_local[["system:time_start", "valids", "cloud_probability", "datetime","geometry"]]
     img_col_info_local["index_image_collection"] = np.arange(img_col_info_local.shape[0])
     return img_col_info_local
 
@@ -834,6 +834,18 @@ def wait_tasks(tasks:List[ee.batch.Task]) -> None:
         time.sleep(60)
 
     print("Tasks failed: %d" % task_error)
+    
+def get_info_s1_collection(img_col:ee.ImageCollection, area_of_interest:Polygon)->gpd.GeoDataFrame:
+    img_col_info = img_collection_to_feature_collection(img_col, 
+                                                                ["system:time_start","orbitProperties_pass"])
+    img_col_info_local = gpd.GeoDataFrame.from_features(img_col_info.getInfo())
+    img_col_info_local["datetime"] = img_col_info_local["system:time_start"].apply(
+        lambda x: datetime.utcfromtimestamp(x / 1000).replace(tzinfo=timezone.utc))
+    img_col_info_local["index_image_collection"] = np.arange(img_col_info_local.shape[0])
+    img_col_info_local['overlap'] = img_col_info_local.geometry.apply(lambda x: 
+                                                          1 * x.intersection(area_of_interest).area/area_of_interest.area)
+
+    return img_col_info_local
 
 
 
@@ -851,8 +863,9 @@ def get_s1_collection(date_start:datetime, date_end:datetime,
             print(f"Not images found for collection {collection_name} date start: {date_start} date end: {date_end}")
         return
     
-    daily_mosaic =  collection_mosaic_day(img_col_all, bounds)
-
+    # daily_mosaic =  collection_mosaic_day(img_col_all, region_of_interest= bounds)
+    daily_mosaic = img_col_all
+    
     return daily_mosaic
 
 def download_s1(area_of_interest: Polygon, date_start_search: datetime, date_end_search: datetime,
@@ -898,7 +911,8 @@ def download_s1(area_of_interest: Polygon, date_start_search: datetime, date_end
         return []
 
     # Get info of the S2 images (convert to table)
-    img_col_info_local = image_collection_fetch_metadata(img_col)
+    # img_col_info_local = image_collection_fetch_metadata(img_col)
+    img_col_info_local = get_info_s1_collection(img_col, area_of_interest)
 
     n_images_col = img_col_info_local.shape[0]
     
@@ -929,7 +943,7 @@ def download_s1(area_of_interest: Polygon, date_start_search: datetime, date_end
     tasks = []
     for good_images in img_col_info_local_good.itertuples():
         img_export = ee.Image(imgs_list.get(good_images.index_image_collection))
-        img_export = img_export.clip(bounding_box_pol)
+        img_export = img_export.clip(bounding_box_pol).select('VH','VV')
 
         date = good_images.datetime.strftime('%Y-%m-%d')
 
