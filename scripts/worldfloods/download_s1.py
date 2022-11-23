@@ -9,7 +9,7 @@ import sys
 
 
 
-def main(cems_code:str, aoi_code:str, threshold_invalids_before:float=0.1,
+def main(cems_code:str, aoi_code:str, threshold_invalids_before:float=0.8,
          threshold_invalids_after:float=0.8, days_before:int=20, days_after:int=20,
          collection_placeholder:str = "S1_GRD", only_one_previous:bool=False,
          margin_pre_search:int=0,
@@ -73,6 +73,23 @@ def main(cems_code:str, aoi_code:str, threshold_invalids_before:float=0.1,
     
         date_pre_flood = satellite_date - timedelta(days=margin_pre_search)
         
+        def filter_images(img_col_info_local:pd.DataFrame) -> pd.Series:
+            is_image_same_solar_day = img_col_info_local["datetime"].apply(lambda x: (satellite_date - x).total_seconds() / 3600. < 10)
+            filter_before = ((img_col_info_local["overlap"] > (threshold_invalids_before)) & \
+                            (img_col_info_local["datetime"] < date_pre_flood) & \
+                            (img_col_info_local["datetime"] >= date_start_search) & \
+                            ~is_image_same_solar_day)
+
+            if only_one_previous and filter_before.any():
+                max_date = img_col_info_local.loc[filter_before, "datetime"].max()
+                filter_before &= (img_col_info_local["datetime"] == max_date)
+
+            filter_after = (img_col_info_local["overlap"] > (threshold_invalids_after)) & \
+                           (img_col_info_local["datetime"] <= date_end_search) & \
+                           ((img_col_info_local["datetime"] >= satellite_date) | is_image_same_solar_day)
+            return filter_before | filter_after
+
+        
         tasks_iter = []
         basename_task = metadata_floodmap["ems_code"] + "_" + metadata_floodmap["aoi_code"]
         for collection_name_trigger, resolution_meters in zip(collection_name, resolution_meters):
@@ -82,7 +99,7 @@ def main(cems_code:str, aoi_code:str, threshold_invalids_before:float=0.1,
                                                          date_start_search=date_start_search,
                                                          date_end_search=date_end_search,
                                                          crs=crs,
-                                                         filter_fun=None,
+                                                         filter_fun=filter_images,
                                                          path_bucket=folder_dest_s2,
                                                          name_task=name_task,
                                                          resolution_meters=resolution_meters,
@@ -100,43 +117,48 @@ def main(cems_code:str, aoi_code:str, threshold_invalids_before:float=0.1,
         
 
 if __name__ == '__main__':
-    # import argparse
+    import argparse
 
-    # parser = argparse.ArgumentParser('Download Sentinel-2 and Landsat-8/9 images for floodmaps in Staging')
-    # parser.add_argument('--cems_code', default="",
-    #                     help="CEMS Code to download images from. If empty string (default) download the images"
-    #                          "from all the codes")
-    # parser.add_argument('--aoi_code', default="",
-    #                     help="CEMS AoI to download images from. If empty string (default) download the images"
-    #                          "from all the AoIs")
-    # parser.add_argument('--only_one_previous', action='store_true')
-    # parser.add_argument('--noforce_s2cloudless', action='store_true')
-    # parser.add_argument("--collection_name", choices=["Landsat", "S2", "both"], default="S2")
-    # parser.add_argument("--metadatas_path", default="gs://ml4cc_data_lake/0_DEV/1_Staging/WorldFloods/",
-    #                     help="gs://ml4cc_data_lake/0_DEV/1_Staging/WorldFloods/ for WorldFloods or "
-    #                          "gs://ml4cc_data_lake/0_DEV/1_Staging/operational/ for operational floods")
-    # parser.add_argument('--threshold_clouds_before', default=.3, type=float,
-    #                     help="Threshold clouds before the event")
-    # parser.add_argument('--threshold_clouds_after', default=.95, type=float,
-    #                     help="Threshold clouds after the event")
-    # parser.add_argument('--threshold_invalids_before', default=.3, type=float,
-    #                     help="Threshold invalids before the event")
-    # parser.add_argument('--threshold_invalids_after', default=.70, type=float,
-    #                     help="Threshold invalids after the event")
-    # parser.add_argument('--days_before', default=20, type=int,
-    #                     help="Days to search after the event")
-    # parser.add_argument('--margin_pre_search', default=0, type=int,
-    #                     help="Days to include as margin to search for pre-flood images")
-    # parser.add_argument('--days_after', default=20, type=int,
-    #                     help="Days to search before the event")
+    parser = argparse.ArgumentParser('Download Sentinel-2 and Landsat-8/9 images for floodmaps in Staging')
+    parser.add_argument('--cems_code', default="",
+                        help="CEMS Code to download images from. If empty string (default) download the images"
+                              "from all the codes")
+    parser.add_argument('--aoi_code', default="",
+                        help="CEMS AoI to download images from. If empty string (default) download the images"
+                              "from all the AoIs")
+    parser.add_argument('--only_one_previous', action='store_true')
+    parser.add_argument('--noforce_s2cloudless', action='store_true')
+    parser.add_argument("--collection_name", choices=["Landsat", "S2", "both"], default="S2")
+    parser.add_argument("--metadatas_path", default="gs://ml4cc_data_lake/0_DEV/1_Staging/WorldFloods/",
+                        help="gs://ml4cc_data_lake/0_DEV/1_Staging/WorldFloods/ for WorldFloods or "
+                              "gs://ml4cc_data_lake/0_DEV/1_Staging/operational/ for operational floods")
+    parser.add_argument('--threshold_clouds_before', default=.3, type=float,
+                        help="Threshold clouds before the event")
+    parser.add_argument('--threshold_clouds_after', default=.95, type=float,
+                        help="Threshold clouds after the event")
+    parser.add_argument('--threshold_invalids_before', default=.3, type=float,
+                        help="Threshold invalids before the event")
+    parser.add_argument('--threshold_invalids_after', default=.70, type=float,
+                        help="Threshold invalids after the event")
+    parser.add_argument('--days_before', default=20, type=int,
+                        help="Days to search after the event")
+    parser.add_argument('--margin_pre_search', default=0, type=int,
+                        help="Days to include as margin to search for pre-flood images")
+    parser.add_argument('--days_after', default=20, type=int,
+                        help="Days to search before the event")
 
-    # args = parser.parse_args()
+    args = parser.parse_args()
 
-    # main(args.cems_code, aoi_code=args.aoi_code, threshold_clouds_before=args.threshold_clouds_before,
-    #      threshold_clouds_after=args.threshold_clouds_after, threshold_invalids_before=args.threshold_invalids_before,
-    #      threshold_invalids_after=args.threshold_invalids_after, days_before=args.days_before,
-    #      collection_placeholder=args.collection_name, metadatas_path=args.metadatas_path,
-    #      only_one_previous=args.only_one_previous, force_s2cloudless=not args.noforce_s2cloudless,
-    #      margin_pre_search=args.margin_pre_search,
-    #      days_after=args.days_after)
-    main(cems_code='EMSR342', aoi_code='04JULIACREEK')
+    main(args.cems_code, aoi_code=args.aoi_code, threshold_clouds_before=args.threshold_clouds_before,
+          threshold_clouds_after=args.threshold_clouds_after, threshold_invalids_before=args.threshold_invalids_before,
+          threshold_invalids_after=args.threshold_invalids_after, days_before=args.days_before,
+          collection_placeholder=args.collection_name, metadatas_path=args.metadatas_path,
+          only_one_previous=args.only_one_previous, force_s2cloudless=not args.noforce_s2cloudless,
+          margin_pre_search=args.margin_pre_search,
+          days_after=args.days_after)
+    
+    # main(cems_code='EMSR441', aoi_code='AOI07', days_after=10, days_before=5)
+    # # main(cems_code='EMSR342', aoi_code='04JULIACREEK', days_after=30, days_before=30)
+    # # main(cems_code='EMSR482', aoi_code='AOI02', days_after=20, days_before=20)
+    
+
