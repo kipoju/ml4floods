@@ -240,6 +240,8 @@ def collection_mosaic_day(imcol:ee.ImageCollection, region_of_interest:ee.Geomet
         utc_date = solar_date.advance(hours_add.multiply(-1), "hour")
 
         ims_day = imcol.filterDate(utc_date, utc_date.advance(1, "day"))
+        geometries_day = ims_day.map(lambda im: ee.Feature(im.geometry()))
+        geom = geometries_day.union()
 
         dates = ims_day.toList(ims_day.size()).map(lambda x: ee.Image(x).date().millis())
         median_date = dates.reduce(ee.Reducer.median())
@@ -251,11 +253,18 @@ def collection_mosaic_day(imcol:ee.ImageCollection, region_of_interest:ee.Geomet
         return im.set({
             "system:time_start": median_date,
             "system:id": solar_date.format("YYYY-MM-dd"),
-            "system:index": solar_date.format("YYYY-MM-dd")
+            "system:index": solar_date.format("YYYY-MM-dd"),
+            "system:footprint": geom.geometry()
         })
 
     mosaic_imlist = unique_solar_dates.map(mosaic_date)
     return ee.ImageCollection(mosaic_imlist)
+
+
+# im1 = ee.Image(mosaic_imlist.get(1))
+
+
+
 
 
 PROPERTIES_DEFAULT = ["system:index", "system:time_start"]
@@ -863,8 +872,8 @@ def get_s1_collection(date_start:datetime, date_end:datetime,
             print(f"Not images found for collection {collection_name} date start: {date_start} date end: {date_end}")
         return
     
-    # daily_mosaic =  collection_mosaic_day(img_col_all, region_of_interest= bounds)
-    daily_mosaic = img_col_all
+    daily_mosaic =  collection_mosaic_day(img_col_all, region_of_interest= bounds)
+    # daily_mosaic = img_col_all
     
     return daily_mosaic
 
@@ -887,9 +896,9 @@ def download_s1(area_of_interest: Polygon, date_start_search: datetime, date_end
     if fs.exists(path_csv):
         data = process_metadata(path_csv, fs=fs)
         if _check_all_downloaded(data, date_start_search=date_start_search,
-                                 date_end_search=date_end_search,
-                                 filter_s2_fun=filter_fun,
-                                 collection_name=collection_name):
+                                  date_end_search=date_end_search,
+                                  filter_s2_fun=filter_fun,
+                                  collection_name=collection_name):
             return []
         else:
             min_date = min(data["datetime"])
@@ -943,7 +952,7 @@ def download_s1(area_of_interest: Polygon, date_start_search: datetime, date_end
     tasks = []
     for good_images in img_col_info_local_good.itertuples():
         img_export = ee.Image(imgs_list.get(good_images.index_image_collection))
-        img_export = img_export.clip(bounding_box_pol).select('VH','VV')
+        img_export = img_export.select('VH','VV').float().clip(bounding_box_pol)
 
         date = good_images.datetime.strftime('%Y-%m-%d')
 

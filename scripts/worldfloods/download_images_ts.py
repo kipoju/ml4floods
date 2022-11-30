@@ -7,9 +7,10 @@ import traceback
 import sys
 
 
-def main(cems_code:str, aoi_code:str, threshold_clouds_before:float,
-         threshold_clouds_after:float, threshold_invalids_before:float,
-         threshold_invalids_after:float, days_before:int, days_after:int,
+def main(cems_code:str, aoi_code:str,
+         days_before:int, days_after:int, threshold_clouds_before:float = .3,
+         threshold_clouds_after:float = .95, threshold_invalids_before:float = .3,
+         threshold_invalids_after:float = .7, 
          collection_placeholder:str = "S2", only_one_previous:bool=False,
          margin_pre_search:int=0,
          force_s2cloudless:bool=True,
@@ -145,16 +146,16 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Download Sentinel-2 and Landsat-8/9 images for floodmaps in Staging')
     parser.add_argument('--cems_code', default="",
                         help="CEMS Code to download images from. If empty string (default) download the images"
-                             "from all the codes")
+                              "from all the codes")
     parser.add_argument('--aoi_code', default="",
                         help="CEMS AoI to download images from. If empty string (default) download the images"
-                             "from all the AoIs")
+                              "from all the AoIs")
     parser.add_argument('--only_one_previous', action='store_true')
     parser.add_argument('--noforce_s2cloudless', action='store_true')
     parser.add_argument("--collection_name", choices=["Landsat", "S2", "both"], default="S2")
     parser.add_argument("--metadatas_path", default="gs://ml4cc_data_lake/0_DEV/1_Staging/WorldFloods/",
                         help="gs://ml4cc_data_lake/0_DEV/1_Staging/WorldFloods/ for WorldFloods or "
-                             "gs://ml4cc_data_lake/0_DEV/1_Staging/operational/ for operational floods")
+                              "gs://ml4cc_data_lake/0_DEV/1_Staging/operational/ for operational floods")
     parser.add_argument('--threshold_clouds_before', default=.3, type=float,
                         help="Threshold clouds before the event")
     parser.add_argument('--threshold_clouds_after', default=.95, type=float,
@@ -173,10 +174,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     main(args.cems_code, aoi_code=args.aoi_code, threshold_clouds_before=args.threshold_clouds_before,
-         threshold_clouds_after=args.threshold_clouds_after, threshold_invalids_before=args.threshold_invalids_before,
-         threshold_invalids_after=args.threshold_invalids_after, days_before=args.days_before,
-         collection_placeholder=args.collection_name, metadatas_path=args.metadatas_path,
-         only_one_previous=args.only_one_previous, force_s2cloudless=not args.noforce_s2cloudless,
-         margin_pre_search=args.margin_pre_search,
-         days_after=args.days_after)
+          threshold_clouds_after=args.threshold_clouds_after, threshold_invalids_before=args.threshold_invalids_before,
+          threshold_invalids_after=args.threshold_invalids_after, days_before=args.days_before,
+          collection_placeholder=args.collection_name, metadatas_path=args.metadatas_path,
+          only_one_previous=args.only_one_previous, force_s2cloudless=not args.noforce_s2cloudless,
+          margin_pre_search=args.margin_pre_search,
+          days_after=args.days_after)
 
