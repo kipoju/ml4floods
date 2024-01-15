@@ -348,7 +348,7 @@ def mayberun(filename, desc, function, export_task, overwrite=False, dry_run=Fal
 
 
 def export_task_image(bucket:Optional[str]="worldfloods", crs:str='EPSG:4326',
-                      scale:float=10, file_dims=16_384, maxPixels=5_000_000_000) -> Callable:
+                      scale:float=10, file_dims=16_384, maxPixels=5_000_000_000, region = None) -> Callable:
     """
     function to export images in the WorldFloods format.
 
@@ -372,6 +372,7 @@ def export_task_image(bucket:Optional[str]="worldfloods", crs:str='EPSG:4326',
                                                         skipEmptyTiles=True,
                                                         bucket=bucket,
                                                         scale=scale,
+                                                        region = region,
                                                         fileFormat="GeoTIFF",
                                                         formatOptions={"cloudOptimized": True},
                                                         fileDimensions=file_dims,
@@ -751,6 +752,7 @@ def download_s2l89(area_of_interest: Polygon,
 
     imgs_list = img_col.toList(n_images_col, 0)
 
+    # TODO añadir aqui una funcion de georeader por si peta por tamaño?
     export_task_fun_img = export_task_image(
         bucket=bucket_name,
         crs=crs,
