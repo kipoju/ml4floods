@@ -13,6 +13,8 @@ from ml4floods.data.worldfloods.configs import COLORS_WORLDFLOODS, CHANNELS_CONF
 from pytorch_lightning.loggers import WandbLogger
 from ml4floods.data.utils import get_filesystem
 
+import segmentation_models_pytorch as smp
+
 class WorldFloodsModel(pl.LightningModule):
     """
     Model to do multiclass classification.
@@ -329,7 +331,7 @@ def configure_architecture(h_params:AttrDict) -> torch.nn.Module:
     num_channels = h_params.get('num_channels', 3)
     num_classes = h_params.get('num_classes', 2)
 
-    if architecture == 'unet':
+    if architecture == 'custom_unet':
         model = UNet(num_channels, num_classes)
 
     elif architecture == 'simplecnn':
@@ -347,7 +349,23 @@ def configure_architecture(h_params:AttrDict) -> torch.nn.Module:
             print("3-channel model. Loading pre-trained weights from ImageNet")
             pretrained_dict = load_weights(PATH_TO_MODEL_HRNET_SMALL)
             model.init_weights(pretrained_dict)
-
+            
+    elif architecture == "unet":
+        
+        encoder = h_params.get("encoder", "resnet18")
+        attention_type = h_params.get("attention_type", None)
+        
+        model = smp.UnetPlusPlus(
+        encoder_name=encoder,  
+        encoder_weights=None,
+        encoder_depth=4,
+        decoder_channels=(256, 128, 64, 32),
+        in_channels=num_channels,
+        classes=num_classes,
+        attention_type = attention_type,
+        activation=None
+    )
+        
     else:
         raise Exception(f'No model implemented for model_type: {h_params.model_type}')
 
